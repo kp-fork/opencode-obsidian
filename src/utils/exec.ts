@@ -1,5 +1,10 @@
 import { spawn } from "child_process";
 
+// Timeout constants (in milliseconds)
+export const DEFAULT_TIMEOUT = 30000; // 30 seconds
+export const NPM_INSTALL_TIMEOUT = 300000; // 5 minutes
+export const VERSION_CHECK_TIMEOUT = 5000; // 5 seconds
+
 export interface ExecResult {
   stdout: string;
   stderr: string;
@@ -17,11 +22,12 @@ export async function exec(
   args: string[],
   options: ExecOptions = {}
 ): Promise<ExecResult> {
-  const { cwd, env = process.env, timeout = 30000 } = options;
+  const { cwd, env = process.env, timeout = DEFAULT_TIMEOUT } = options;
 
   return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
+    let completed = false;
 
     const proc = spawn(command, args, {
       cwd,
@@ -38,17 +44,27 @@ export async function exec(
     });
 
     const timer = setTimeout(() => {
+      if (completed) return;
+      completed = true;
       proc.kill("SIGTERM");
       reject(new Error(`Command timed out after ${timeout}ms`));
     }, timeout);
 
-    proc.on("close", (code) => {
+    const cleanup = () => {
       clearTimeout(timer);
+    };
+
+    proc.on("close", (code) => {
+      if (completed) return;
+      completed = true;
+      cleanup();
       resolve({ stdout, stderr, exitCode: code });
     });
 
     proc.on("error", (err) => {
-      clearTimeout(timer);
+      if (completed) return;
+      completed = true;
+      cleanup();
       reject(err);
     });
   });
@@ -61,11 +77,12 @@ export async function execWithProgress(
   onStderr?: (data: string) => void,
   options: ExecOptions = {}
 ): Promise<ExecResult> {
-  const { cwd, env = process.env, timeout = 300000 } = options; // 5 min default for npm install
+  const { cwd, env = process.env, timeout = NPM_INSTALL_TIMEOUT } = options;
 
   return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
+    let completed = false;
 
     const proc = spawn(command, args, {
       cwd,
@@ -86,17 +103,27 @@ export async function execWithProgress(
     });
 
     const timer = setTimeout(() => {
+      if (completed) return;
+      completed = true;
       proc.kill("SIGTERM");
       reject(new Error(`Command timed out after ${timeout}ms`));
     }, timeout);
 
-    proc.on("close", (code) => {
+    const cleanup = () => {
       clearTimeout(timer);
+    };
+
+    proc.on("close", (code) => {
+      if (completed) return;
+      completed = true;
+      cleanup();
       resolve({ stdout, stderr, exitCode: code });
     });
 
     proc.on("error", (err) => {
-      clearTimeout(timer);
+      if (completed) return;
+      completed = true;
+      cleanup();
       reject(err);
     });
   });

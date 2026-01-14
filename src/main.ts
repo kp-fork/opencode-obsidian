@@ -282,7 +282,7 @@ export default class OpenCodePlugin extends Plugin {
   }
 
   async selectInstallation(installationId: string): Promise<void> {
-    this.installationManager.selectInstallation(installationId);
+    await this.installationManager.selectInstallation(installationId);
     const selected = this.installationManager.getSelectedInstallation();
     if (selected) {
       this.settings.opencodePath = selected.executablePath;

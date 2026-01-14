@@ -7,7 +7,7 @@ import type { Plugin } from "obsidian";
 function generateId(): string {
   return Date.now().toString(36) + randomBytes(8).toString("hex");
 }
-import { exec, execWithProgress, parseVersionFromOutput } from "./utils/exec";
+import { exec, execWithProgress, parseVersionFromOutput, NPM_INSTALL_TIMEOUT, VERSION_CHECK_TIMEOUT } from "./utils/exec";
 import { ensureDir, fileExists } from "./utils/download";
 import { getPlatform, getArch, getExecutableExtension, getPluginDataDir, getInstallationsDir } from "./platform";
 
@@ -54,8 +54,8 @@ export class InstallationManager {
   private state: InstallationState = "not-installed";
   private installations: Installation[] = [];
   private selectedInstallationId: string | null = null;
-  private stateChangeCallbacks: Array<(state: InstallationState) => void> = [];
-  private progressCallbacks: Array<(progress: InstallProgress) => void> = [];
+  private stateChangeCallbacks = new Set<(state: InstallationState) => void>();
+  private progressCallbacks = new Set<(progress: InstallProgress) => void>();
 
   constructor(plugin: Plugin) {
     this.plugin = plugin;
@@ -188,7 +188,7 @@ export class InstallationManager {
         (stderr) => {
           console.error("[OpenCode Install]", stderr);
         },
-        { cwd: installDir, timeout: 300000 } // 5 minutes
+        { cwd: installDir, timeout: NPM_INSTALL_TIMEOUT }
       );
 
       if (result.exitCode !== 0) {
@@ -276,33 +276,27 @@ export class InstallationManager {
     await this.detectState();
   }
 
-  selectInstallation(installationId: string): void {
+  async selectInstallation(installationId: string): Promise<void> {
     const installation = this.installations.find((i) => i.id === installationId);
     if (!installation) {
       throw new Error("Installation not found");
     }
 
     this.selectedInstallationId = installationId;
-    this.saveRegistry();
+    await this.saveRegistry();
   }
 
   onStateChange(callback: (state: InstallationState) => void): () => void {
-    this.stateChangeCallbacks.push(callback);
+    this.stateChangeCallbacks.add(callback);
     return () => {
-      const index = this.stateChangeCallbacks.indexOf(callback);
-      if (index > -1) {
-        this.stateChangeCallbacks.splice(index, 1);
-      }
+      this.stateChangeCallbacks.delete(callback);
     };
   }
 
   onProgress(callback: (progress: InstallProgress) => void): () => void {
-    this.progressCallbacks.push(callback);
+    this.progressCallbacks.add(callback);
     return () => {
-      const index = this.progressCallbacks.indexOf(callback);
-      if (index > -1) {
-        this.progressCallbacks.splice(index, 1);
-      }
+      this.progressCallbacks.delete(callback);
     };
   }
 
@@ -341,29 +335,42 @@ export class InstallationManager {
 
       this.installations = registry.installations || [];
       this.selectedInstallationId = registry.selectedInstallationId || null;
-    } catch {
-      // Registry doesn't exist yet, start fresh
-      this.installations = [];
-      this.selectedInstallationId = null;
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        // File doesn't exist yet - that's fine for first run
+        this.installations = [];
+        this.selectedInstallationId = null;
+      } else {
+        // Actual error - log it and start fresh
+        console.error("[OpenCode] Failed to load registry:", err);
+        this.installations = [];
+        this.selectedInstallationId = null;
+      }
     }
   }
 
   private async saveRegistry(): Promise<void> {
-    const registry = {
-      installations: this.installations,
-      selectedInstallationId: this.selectedInstallationId,
-    };
+    try {
+      const registry = {
+        installations: this.installations,
+        selectedInstallationId: this.selectedInstallationId,
+      };
 
-    await fs.promises.writeFile(
-      this.registryPath,
-      JSON.stringify(registry, null, 2),
-      "utf-8"
-    );
+      await fs.promises.writeFile(
+        this.registryPath,
+        JSON.stringify(registry, null, 2),
+        "utf-8"
+      );
+    } catch (error) {
+      console.error("[OpenCode] Failed to save registry:", error);
+      throw new Error(`Failed to save installation registry: ${(error as Error).message}`);
+    }
   }
 
   private async getVersionExecutable(execPath: string): Promise<string | null> {
     try {
-      const result = await exec(execPath, ["--version"], { timeout: 5000 });
+      const result = await exec(execPath, ["--version"], { timeout: VERSION_CHECK_TIMEOUT });
       return parseVersionFromOutput(result.stdout);
     } catch {
       return null;

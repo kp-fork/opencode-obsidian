@@ -729,12 +729,16 @@ var import_crypto = require("crypto");
 
 // src/utils/exec.ts
 var import_child_process2 = require("child_process");
+var DEFAULT_TIMEOUT = 3e4;
+var NPM_INSTALL_TIMEOUT = 3e5;
+var VERSION_CHECK_TIMEOUT = 5e3;
 async function exec(command, args, options = {}) {
-  const { cwd, env = process.env, timeout = 3e4 } = options;
+  const { cwd, env = process.env, timeout = DEFAULT_TIMEOUT } = options;
   return new Promise((resolve, reject) => {
     var _a, _b;
     let stdout = "";
     let stderr = "";
+    let completed = false;
     const proc = (0, import_child_process2.spawn)(command, args, {
       cwd,
       env: { ...env },
@@ -747,25 +751,35 @@ async function exec(command, args, options = {}) {
       stderr += data.toString();
     });
     const timer = setTimeout(() => {
+      if (completed) return;
+      completed = true;
       proc.kill("SIGTERM");
       reject(new Error(`Command timed out after ${timeout}ms`));
     }, timeout);
-    proc.on("close", (code) => {
+    const cleanup = () => {
       clearTimeout(timer);
+    };
+    proc.on("close", (code) => {
+      if (completed) return;
+      completed = true;
+      cleanup();
       resolve({ stdout, stderr, exitCode: code });
     });
     proc.on("error", (err) => {
-      clearTimeout(timer);
+      if (completed) return;
+      completed = true;
+      cleanup();
       reject(err);
     });
   });
 }
 async function execWithProgress(command, args, onStdout, onStderr, options = {}) {
-  const { cwd, env = process.env, timeout = 3e5 } = options;
+  const { cwd, env = process.env, timeout = NPM_INSTALL_TIMEOUT } = options;
   return new Promise((resolve, reject) => {
     var _a, _b;
     let stdout = "";
     let stderr = "";
+    let completed = false;
     const proc = (0, import_child_process2.spawn)(command, args, {
       cwd,
       env: { ...env },
@@ -782,15 +796,24 @@ async function execWithProgress(command, args, onStdout, onStderr, options = {})
       onStderr == null ? void 0 : onStderr(text);
     });
     const timer = setTimeout(() => {
+      if (completed) return;
+      completed = true;
       proc.kill("SIGTERM");
       reject(new Error(`Command timed out after ${timeout}ms`));
     }, timeout);
-    proc.on("close", (code) => {
+    const cleanup = () => {
       clearTimeout(timer);
+    };
+    proc.on("close", (code) => {
+      if (completed) return;
+      completed = true;
+      cleanup();
       resolve({ stdout, stderr, exitCode: code });
     });
     proc.on("error", (err) => {
-      clearTimeout(timer);
+      if (completed) return;
+      completed = true;
+      cleanup();
       reject(err);
     });
   });
@@ -976,8 +999,8 @@ var InstallationManager = class {
     this.state = "not-installed";
     this.installations = [];
     this.selectedInstallationId = null;
-    this.stateChangeCallbacks = [];
-    this.progressCallbacks = [];
+    this.stateChangeCallbacks = /* @__PURE__ */ new Set();
+    this.progressCallbacks = /* @__PURE__ */ new Set();
     this.plugin = plugin;
     this.dataDir = "";
     this.installationsDir = "";
@@ -1080,8 +1103,7 @@ var InstallationManager = class {
         (stderr) => {
           console.error("[OpenCode Install]", stderr);
         },
-        { cwd: installDir, timeout: 3e5 }
-        // 5 minutes
+        { cwd: installDir, timeout: NPM_INSTALL_TIMEOUT }
       );
       if (result.exitCode !== 0) {
         throw new Error(`npm install failed: ${result.stderr}`);
@@ -1143,30 +1165,24 @@ var InstallationManager = class {
     await this.saveRegistry();
     await this.detectState();
   }
-  selectInstallation(installationId) {
+  async selectInstallation(installationId) {
     const installation = this.installations.find((i) => i.id === installationId);
     if (!installation) {
       throw new Error("Installation not found");
     }
     this.selectedInstallationId = installationId;
-    this.saveRegistry();
+    await this.saveRegistry();
   }
   onStateChange(callback) {
-    this.stateChangeCallbacks.push(callback);
+    this.stateChangeCallbacks.add(callback);
     return () => {
-      const index = this.stateChangeCallbacks.indexOf(callback);
-      if (index > -1) {
-        this.stateChangeCallbacks.splice(index, 1);
-      }
+      this.stateChangeCallbacks.delete(callback);
     };
   }
   onProgress(callback) {
-    this.progressCallbacks.push(callback);
+    this.progressCallbacks.add(callback);
     return () => {
-      const index = this.progressCallbacks.indexOf(callback);
-      if (index > -1) {
-        this.progressCallbacks.splice(index, 1);
-      }
+      this.progressCallbacks.delete(callback);
     };
   }
   setState(state) {
@@ -1199,25 +1215,37 @@ var InstallationManager = class {
       const registry = JSON.parse(data);
       this.installations = registry.installations || [];
       this.selectedInstallationId = registry.selectedInstallationId || null;
-    } catch (e) {
-      this.installations = [];
-      this.selectedInstallationId = null;
+    } catch (error) {
+      const err = error;
+      if (err.code === "ENOENT") {
+        this.installations = [];
+        this.selectedInstallationId = null;
+      } else {
+        console.error("[OpenCode] Failed to load registry:", err);
+        this.installations = [];
+        this.selectedInstallationId = null;
+      }
     }
   }
   async saveRegistry() {
-    const registry = {
-      installations: this.installations,
-      selectedInstallationId: this.selectedInstallationId
-    };
-    await fs5.promises.writeFile(
-      this.registryPath,
-      JSON.stringify(registry, null, 2),
-      "utf-8"
-    );
+    try {
+      const registry = {
+        installations: this.installations,
+        selectedInstallationId: this.selectedInstallationId
+      };
+      await fs5.promises.writeFile(
+        this.registryPath,
+        JSON.stringify(registry, null, 2),
+        "utf-8"
+      );
+    } catch (error) {
+      console.error("[OpenCode] Failed to save registry:", error);
+      throw new Error(`Failed to save installation registry: ${error.message}`);
+    }
   }
   async getVersionExecutable(execPath) {
     try {
-      const result = await exec(execPath, ["--version"], { timeout: 5e3 });
+      const result = await exec(execPath, ["--version"], { timeout: VERSION_CHECK_TIMEOUT });
       return parseVersionFromOutput(result.stdout);
     } catch (e) {
       return null;
@@ -1573,7 +1601,7 @@ var OpenCodePlugin = class extends import_obsidian4.Plugin {
     }
   }
   async selectInstallation(installationId) {
-    this.installationManager.selectInstallation(installationId);
+    await this.installationManager.selectInstallation(installationId);
     const selected = this.installationManager.getSelectedInstallation();
     if (selected) {
       this.settings.opencodePath = selected.executablePath;

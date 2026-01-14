@@ -1,6 +1,7 @@
 import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
+import { exec as execSafe, parseVersionFromOutput, VERSION_CHECK_TIMEOUT } from "../utils/exec";
 
 const execAsync = promisify(exec);
 
@@ -57,14 +58,11 @@ export async function detectExistingOpenCode(): Promise<string | null> {
   return null;
 }
 
-export function getNpmInstallPath(destination: string): string {
-  return "npm.cmd";
-}
-
 export async function getOpenCodeVersion(executablePath: string): Promise<string | null> {
   try {
-    const { stdout } = await execAsync(`"${executablePath}" --version`);
-    return stdout.trim();
+    // Use safe exec that doesn't use shell interpolation
+    const result = await execSafe(executablePath, ["--version"], { timeout: VERSION_CHECK_TIMEOUT });
+    return parseVersionFromOutput(result.stdout);
   } catch {
     return null;
   }
