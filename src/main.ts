@@ -1,13 +1,18 @@
 import { Plugin, WorkspaceLeaf, Notice } from "obsidian";
-import { OpenCodeSettings, DEFAULT_SETTINGS, OPENCODE_VIEW_TYPE } from "./types";
+import { OpenCodeSettings, DEFAULT_SETTINGS, OPENCODE_VIEW_TYPE, Installation } from "./types";
 import { OpenCodeView } from "./OpenCodeView";
 import { OpenCodeSettingTab } from "./SettingsTab";
 import { ProcessManager, ProcessState } from "./ProcessManager";
+import { InstallationManager, InstallationState, InstallProgress } from "./InstallationManager";
+import { OpencodeSettingsManager } from "./OpencodeSettingsManager";
 import { registerOpenCodeIcons, OPENCODE_ICON_NAME } from "./icons";
+import { getPluginDataDir, getConfigDir } from "./platform";
 
 export default class OpenCodePlugin extends Plugin {
   settings: OpenCodeSettings = DEFAULT_SETTINGS;
-  private processManager: ProcessManager; 
+  private processManager: ProcessManager;
+  private installationManager: InstallationManager;
+  private opencodeSettingsManager: OpencodeSettingsManager | null = null;
   private stateChangeCallbacks: Array<(state: ProcessState) => void> = [];
 
   async onload(): Promise<void> {
@@ -17,11 +22,37 @@ export default class OpenCodePlugin extends Plugin {
 
     await this.loadSettings();
 
+    // Initialize Installation Manager
+    this.installationManager = new InstallationManager(this);
+    await this.installationManager.initialize();
+
+    // Initialize OpenCode Settings Manager
+    const dataDir = await getPluginDataDir(this);
+    const configDir = getConfigDir(dataDir);
+    this.opencodeSettingsManager = new OpencodeSettingsManager(configDir);
+
+    // Update opencodePath from selected installation if available
+    const selectedInstallation = this.installationManager.getSelectedInstallation();
+    if (selectedInstallation) {
+      this.settings.opencodePath = selectedInstallation.executablePath;
+      this.settings.installations = this.installationManager.getInstallations();
+      this.settings.selectedInstallationId = selectedInstallation.id;
+      this.settings.opencodeConfigPath = this.opencodeSettingsManager.getConfigPath();
+    } else {
+      // Detect existing installations
+      const detected = await this.installationManager.detectExistingInstallations();
+      if (detected.length > 0) {
+        this.settings.installations = detected;
+        this.settings.opencodePath = detected[0].executablePath;
+      }
+    }
+
     const projectDirectory = this.getProjectDirectory();
 
     this.processManager = new ProcessManager(
       this.settings,
       projectDirectory,
+      this.settings.opencodeConfigPath,
       (state) => this.notifyStateChange(state)
     );
 
@@ -61,6 +92,14 @@ export default class OpenCodePlugin extends Plugin {
       name: "Stop OpenCode server",
       callback: () => {
         this.stopServer();
+      },
+    });
+
+    this.addCommand({
+      id: "install-opencode",
+      name: "Install OpenCode",
+      callback: () => {
+        this.installOpenCode();
       },
     });
 
@@ -207,5 +246,79 @@ export default class OpenCodePlugin extends Plugin {
     }
     console.log("[OpenCode] Using vault path as project directory:", vaultPath);
     return vaultPath;
+  }
+
+  // Installation management methods
+
+  getInstallationState(): InstallationState {
+    return this.installationManager?.getState() ?? "not-installed";
+  }
+
+  getInstalledVersion(): string | null {
+    return this.installationManager?.getInstalledVersion() ?? null;
+  }
+
+  getInstallations(): Installation[] {
+    return this.installationManager?.getInstallations() ?? [];
+  }
+
+  async installOpenCode(): Promise<void> {
+    const result = await this.installationManager.installOpenCode({
+      onProgress: (progress) => {
+        console.log("[OpenCode Install]", progress.stage, progress.message);
+        new Notice(`OpenCode: ${progress.message}`);
+      },
+    });
+
+    if (result.success && result.installation) {
+      this.settings.installations = this.installationManager.getInstallations();
+      this.settings.selectedInstallationId = result.installation.id;
+      this.settings.opencodePath = result.installation.executablePath;
+      await this.saveSettings();
+      new Notice("OpenCode installed successfully!");
+    } else if (result.error) {
+      new Notice(`Installation failed: ${result.error}`);
+    }
+  }
+
+  async selectInstallation(installationId: string): Promise<void> {
+    this.installationManager.selectInstallation(installationId);
+    const selected = this.installationManager.getSelectedInstallation();
+    if (selected) {
+      this.settings.opencodePath = selected.executablePath;
+      this.settings.selectedInstallationId = selected.id;
+      await this.saveSettings();
+
+      // Restart server if running
+      if (this.getProcessState() === "running") {
+        this.stopServer();
+        await this.startServer();
+      }
+    }
+  }
+
+  async uninstallOpenCode(installationId: string): Promise<void> {
+    await this.installationManager.uninstallOpenCode(installationId);
+    this.settings.installations = this.installationManager.getInstallations();
+
+    // If we uninstalled the selected one, clear it
+    if (this.settings.selectedInstallationId === installationId) {
+      this.settings.selectedInstallationId = null;
+      const installations = this.installationManager.getInstallations();
+      if (installations.length > 0) {
+        this.settings.selectedInstallationId = installations[0].id;
+        this.settings.opencodePath = installations[0].executablePath;
+      }
+    }
+
+    await this.saveSettings();
+  }
+
+  getInstallationManager(): InstallationManager {
+    return this.installationManager;
+  }
+
+  getOpencodeSettingsManager(): OpencodeSettingsManager | null {
+    return this.opencodeSettingsManager;
   }
 }

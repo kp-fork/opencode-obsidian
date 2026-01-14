@@ -31,6 +31,14 @@ export class OpenCodeView extends ItemView {
     this.contentEl.empty();
     this.contentEl.addClass("opencode-container");
 
+    // Check if OpenCode is installed
+    const installationState = this.plugin.getInstallationState();
+
+    if (installationState === "not-installed") {
+      this.renderNotInstalledState();
+      return;
+    }
+
     // Subscribe to state changes
     this.unsubscribeStateChange = this.plugin.onProcessStateChange((state) => {
       this.currentState = state;
@@ -211,6 +219,48 @@ export class OpenCodeView extends ItemView {
     settingsButton.addEventListener("click", () => {
       (this.app as any).setting.open();
       (this.app as any).setting.openTabById("obsidian-opencode");
+    });
+  }
+
+  private renderNotInstalledState(): void {
+    this.contentEl.empty();
+
+    const statusContainer = this.contentEl.createDiv({
+      cls: "opencode-status-container",
+    });
+
+    const iconEl = statusContainer.createDiv({ cls: "opencode-status-icon" });
+    setIcon(iconEl, "download");
+
+    statusContainer.createEl("h3", { text: "OpenCode is not installed" });
+    statusContainer.createEl("p", {
+      text: "Install OpenCode to use AI-powered coding assistance in Obsidian.",
+      cls: "opencode-status-message",
+    });
+
+    const installButton = statusContainer.createEl("button", {
+      text: "Install OpenCode",
+      cls: "mod-cta",
+    });
+    installButton.addEventListener("click", async () => {
+      installButton.setDisabled(true);
+      installButton.textContent = "Installing...";
+      await this.plugin.installOpenCode();
+      // Refresh view after installation
+      this.onOpen();
+    });
+
+    const settingsButton = statusContainer.createEl("button", {
+      text: "Open Settings",
+    });
+    settingsButton.addEventListener("click", () => {
+      (this.app as any).setting.open();
+      (this.app as any).setting.openTabById("obsidian-opencode");
+    });
+
+    statusContainer.createEl("p", {
+      text: "Note: This requires Node.js and npm to be installed on your system.",
+      cls: "opencode-status-hint",
     });
   }
 

@@ -10,15 +10,18 @@ export class ProcessManager {
   private earlyExitCode: number | null = null;
   private settings: OpenCodeSettings;
   private projectDirectory: string;
+  private configPath: string | null;
   private onStateChange: (state: ProcessState) => void;
 
   constructor(
     settings: OpenCodeSettings,
     projectDirectory: string,
+    configPath: string | null = null,
     onStateChange: (state: ProcessState) => void
   ) {
     this.settings = settings;
     this.projectDirectory = projectDirectory;
+    this.configPath = configPath;
     this.onStateChange = onStateChange;
   }
 
@@ -28,6 +31,10 @@ export class ProcessManager {
 
   updateProjectDirectory(directory: string): void {
     this.projectDirectory = directory;
+  }
+
+  updateConfigPath(configPath: string | null): void {
+    this.configPath = configPath;
   }
 
   getState(): ProcessState {
@@ -66,21 +73,30 @@ export class ProcessManager {
       opencodePath: this.settings.opencodePath,
       port: this.settings.port,
       hostname: this.settings.hostname,
+      configPath: this.configPath,
       cwd: this.projectDirectory,
       projectDirectory: this.projectDirectory,
     });
 
+    // Build args array
+    const args = [
+      "serve",
+      "--port",
+      this.settings.port.toString(),
+      "--hostname",
+      this.settings.hostname,
+      "--cors",
+      "app://obsidian.md",
+    ];
+
+    // Add config file path if provided
+    if (this.configPath) {
+      args.push("--config", this.configPath);
+    }
+
     this.process = spawn(
       this.settings.opencodePath,
-      [
-        "serve",
-        "--port",
-        this.settings.port.toString(),
-        "--hostname",
-        this.settings.hostname,
-        "--cors",
-        "app://obsidian.md",
-      ],
+      args,
       {
         cwd: this.projectDirectory,
         env: { ...process.env },

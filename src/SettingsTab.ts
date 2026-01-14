@@ -2,7 +2,8 @@ import { App, PluginSettingTab, Setting, Notice } from "obsidian";
 import { existsSync, statSync } from "fs";
 import { homedir } from "os";
 import type OpenCodePlugin from "./main";
-import type { ViewLocation } from "./types";
+import type { ViewLocation, Installation } from "./types";
+import type { InstallationState } from "./InstallationManager";
 
 function expandTilde(path: string): string {
   if (path === "~") {
@@ -125,6 +126,10 @@ export class OpenCodeSettingTab extends PluginSettingTab {
           })
       );
 
+    containerEl.createEl("h3", { text: "OpenCode Installation" });
+
+    this.renderInstallationSection(containerEl);
+
     containerEl.createEl("h3", { text: "Server Status" });
 
     const statusContainer = containerEl.createDiv({ cls: "opencode-settings-status" });
@@ -243,5 +248,138 @@ export class OpenCodeSettingTab extends PluginSettingTab {
         cls: "opencode-status-waiting",
       });
     }
+  }
+
+  private renderInstallationSection(containerEl: HTMLElement): void {
+    const state = this.plugin.getInstallationState();
+    const version = this.plugin.getInstalledVersion();
+    const installations = this.plugin.getInstallations();
+
+    // Installation status
+    const statusText = {
+      "not-installed": "Not Installed",
+      "installing": "Installing...",
+      "installed": "Installed",
+      "error": "Error",
+    };
+
+    const statusClass = {
+      "not-installed": "status-stopped",
+      "installing": "status-starting",
+      "installed": "status-running",
+      "error": "status-error",
+    };
+
+    new Setting(containerEl)
+      .setName("Installation Status")
+      .setDesc("Current status of OpenCode installation")
+      .addButton((button) => {
+        button
+          .setButtonText(statusText[state])
+          .setDisabled(true)
+          .buttonEl.addClass(`opencode-status-badge ${statusClass[state]}`);
+        return button;
+      });
+
+    if (version) {
+      new Setting(containerEl)
+        .setName("Installed Version")
+        .setDesc(`OpenCode version ${version} is installed`);
+    }
+
+    // Installation actions
+    if (state === "not-installed") {
+      new Setting(containerEl)
+        .setName("Install OpenCode")
+        .setDesc("Install OpenCode via npm (requires Node.js and npm)")
+        .addButton((button) => {
+          button
+            .setButtonText("Install")
+            .setCta()
+            .onClick(async () => {
+              button.setDisabled(true);
+              button.setButtonText("Installing...");
+              await this.plugin.installOpenCode();
+              this.display(); // Refresh the UI
+            });
+          return button;
+        });
+    }
+
+    // Installation selector
+    if (installations.length > 0) {
+      new Setting(containerEl)
+        .setName("Active Installation")
+        .setDesc("Select which OpenCode installation to use")
+        .addDropdown((dropdown) => {
+          for (const installation of installations) {
+            const label = installation.source === "managed"
+              ? `Managed (${installation.version})`
+              : `System (${installation.version}) - ${installation.executablePath}`;
+            dropdown.addOption(installation.id, label);
+          }
+
+          dropdown
+            .setValue(this.plugin.settings.selectedInstallationId || installations[0].id)
+            .onChange(async (value) => {
+              await this.plugin.selectInstallation(value);
+              this.display();
+            });
+
+          return dropdown;
+        });
+
+      // Uninstall button for managed installations
+      const managedInstallations = installations.filter((i) => i.source === "managed");
+      if (managedInstallations.length > 0) {
+        new Setting(containerEl)
+          .setName("Managed Installations")
+          .setDesc("Uninstall managed OpenCode installations");
+
+        for (const installation of managedInstallations) {
+          new Setting(containerEl)
+            .setName(`Version ${installation.version}`)
+            .setDesc(`Installed at ${new Date(installation.installDate).toLocaleString()}`)
+            .addButton((button) => {
+              button
+                .setButtonText("Uninstall")
+                .setWarning()
+                .onClick(async () => {
+                  if (confirm(`Uninstall OpenCode ${installation.version}?`)) {
+                    await this.plugin.uninstallOpenCode(installation.id);
+                    this.display();
+                  }
+                });
+              return button;
+            });
+        }
+      }
+    }
+
+    // Auto-install setting
+    new Setting(containerEl)
+      .setName("Auto-install on first run")
+      .setDesc("Automatically install OpenCode when no installation is found")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoInstallEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.autoInstallEnabled = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Check for updates setting
+    new Setting(containerEl)
+      .setName("Check for updates")
+      .setDesc("Periodically check for OpenCode updates")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.checkForUpdates)
+          .onChange(async (value) => {
+            this.plugin.settings.checkForUpdates = value;
+            await this.plugin.saveSettings();
+          })
+      );
   }
 }
