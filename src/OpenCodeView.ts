@@ -243,7 +243,7 @@ export class OpenCodeView extends ItemView {
       cls: "mod-cta",
     });
     installButton.addEventListener("click", async () => {
-      installButton.setDisabled(true);
+      installButton.disabled = true;
       installButton.textContent = "Installing...";
       await this.plugin.installOpenCode();
       // Refresh view after installation

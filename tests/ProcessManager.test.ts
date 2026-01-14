@@ -64,6 +64,7 @@ describe("ProcessManager", () => {
        currentManager = new ProcessManager(
          settings,
          PROJECT_DIR,
+         null,
          (state) => stateHistory.push(state)
        );
 
@@ -80,16 +81,19 @@ describe("ProcessManager", () => {
      test("reports correct server URL with encoded project directory", async () => {
        const port = getNextPort();
        const settings = createTestSettings(port);
+       const stateHistory: ProcessState[] = [];
 
        currentManager = new ProcessManager(
          settings,
          PROJECT_DIR,
-         () => {}
+         null,
+         (state) => stateHistory.push(state)
        );
 
       const url = currentManager.getUrl();
       const expectedBase = `http://127.0.0.1:${port}`;
-      const expectedPath = btoa(PROJECT_DIR);
+      // Use UTF-8 aware encoding to match ProcessManager implementation
+      const expectedPath = btoa(unescape(encodeURIComponent(PROJECT_DIR)));
 
       expect(url).toBe(`${expectedBase}/${expectedPath}`);
     });
@@ -102,6 +106,7 @@ describe("ProcessManager", () => {
        currentManager = new ProcessManager(
          settings,
          PROJECT_DIR,
+         null,
          (state) => stateHistory.push(state)
        );
 
@@ -122,6 +127,7 @@ describe("ProcessManager", () => {
        currentManager = new ProcessManager(
          settings,
          PROJECT_DIR,
+         null,
          (state) => stateHistory.push(state)
        );
 
@@ -138,11 +144,13 @@ describe("ProcessManager", () => {
      test("can restart after stop", async () => {
        const port = getNextPort();
        const settings = createTestSettings(port);
+       const stateHistory: ProcessState[] = [];
 
        currentManager = new ProcessManager(
          settings,
          PROJECT_DIR,
-         () => {}
+         null,
+         (state) => stateHistory.push(state)
        );
 
       // First start
@@ -166,25 +174,23 @@ describe("ProcessManager", () => {
      test("returns true immediately if already running", async () => {
        const port = getNextPort();
        const settings = createTestSettings(port);
+       const stateHistory: ProcessState[] = [];
 
        currentManager = new ProcessManager(
          settings,
          PROJECT_DIR,
-         () => {}
+         null,
+         (state) => stateHistory.push(state)
        );
 
       // First start
       await currentManager.start();
       expect(currentManager.getState()).toBe("running");
 
-      // Second start should return true immediately without state changes
-      const stateHistory: ProcessState[] = [];
-      const originalOnStateChange = (currentManager as any).onStateChange;
-      (currentManager as any).onStateChange = (state: ProcessState) => {
-        stateHistory.push(state);
-        originalOnStateChange(state);
-      };
+      // Clear history before second start
+      stateHistory.length = 0;
 
+      // Second start should return true immediately without state changes
       const result = await currentManager.start();
 
       expect(result).toBe(true);
@@ -196,11 +202,13 @@ describe("ProcessManager", () => {
      test("health check endpoint is accessible when running", async () => {
        const port = getNextPort();
        const settings = createTestSettings(port);
+       const stateHistory: ProcessState[] = [];
 
        currentManager = new ProcessManager(
          settings,
          PROJECT_DIR,
-         () => {}
+         null,
+         (state) => stateHistory.push(state)
        );
 
       await currentManager.start();

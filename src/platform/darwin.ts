@@ -27,9 +27,14 @@ export async function detectSystemNode(): Promise<string | null> {
 
 export function getCommonOpenCodePaths(): string[] {
   return [
+    // Actual binary paths (prefer these over wrapper scripts)
+    "~/node_modules/opencode-ai/bin/opencode",
+    "~/.bun/node_modules/opencode-ai/bin/opencode",
+    // Wrapper scripts (these require node in PATH)
     "/usr/local/bin/opencode",
     "/opt/homebrew/bin/opencode",
     "~/.local/bin/opencode",
+    "~/.bun/bin/opencode",
     "~/node_modules/.bin/opencode",
   ];
 }
@@ -38,15 +43,21 @@ export async function detectExistingOpenCode(): Promise<string | null> {
   // First try to find in PATH
   try {
     const { stdout } = await execAsync("which opencode");
-    return stdout.trim();
+    const path = stdout.trim();
+    console.log("[OpenCode] Found via which:", path);
+    return path;
   } catch {
     // Check common paths
+    console.log("[OpenCode] 'which opencode' failed, checking common paths...");
     for (const p of getCommonOpenCodePaths()) {
       const expanded = p.replace("~", process.env.HOME || "");
+      console.log("[OpenCode] Checking path:", expanded);
       if (fs.existsSync(expanded)) {
+        console.log("[OpenCode] Found opencode at:", expanded);
         return expanded;
       }
     }
+    console.log("[OpenCode] No opencode found in common paths");
   }
   return null;
 }

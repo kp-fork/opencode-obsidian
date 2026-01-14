@@ -30,6 +30,7 @@ export function getCommonOpenCodePaths(): string[] {
     "/usr/bin/opencode",
     "~/.local/bin/opencode",
     "~/node_modules/.bin/opencode",
+    "~/.bun/bin/opencode",
   ];
 }
 

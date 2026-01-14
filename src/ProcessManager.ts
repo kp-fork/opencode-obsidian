@@ -46,7 +46,8 @@ export class ProcessManager {
   }
 
   getUrl(): string {
-    const encodedPath = btoa(this.projectDirectory);
+    // Use UTF-8 aware encoding to support paths with non-ASCII characters
+    const encodedPath = btoa(unescape(encodeURIComponent(this.projectDirectory)));
     return `http://${this.settings.hostname}:${this.settings.port}/${encodedPath}`;
   }
 

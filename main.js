@@ -258,7 +258,7 @@ var OpenCodeView = class extends import_obsidian2.ItemView {
       cls: "mod-cta"
     });
     installButton.addEventListener("click", async () => {
-      installButton.setDisabled(true);
+      installButton.disabled = true;
       installButton.textContent = "Installing...";
       await this.plugin.installOpenCode();
       this.onOpen();
@@ -572,7 +572,7 @@ var ProcessManager = class {
     return this.lastError;
   }
   getUrl() {
-    const encodedPath = btoa(this.projectDirectory);
+    const encodedPath = btoa(unescape(encodeURIComponent(this.projectDirectory)));
     return `http://${this.settings.hostname}:${this.settings.port}/${encodedPath}`;
   }
   async start() {
@@ -891,23 +891,34 @@ async function detectSystemNpm() {
 }
 function getCommonOpenCodePaths() {
   return [
+    // Actual binary paths (prefer these over wrapper scripts)
+    "~/node_modules/opencode-ai/bin/opencode",
+    "~/.bun/node_modules/opencode-ai/bin/opencode",
+    // Wrapper scripts (these require node in PATH)
     "/usr/local/bin/opencode",
     "/opt/homebrew/bin/opencode",
     "~/.local/bin/opencode",
+    "~/.bun/bin/opencode",
     "~/node_modules/.bin/opencode"
   ];
 }
 async function detectExistingOpenCode() {
   try {
     const { stdout } = await execAsync("which opencode");
-    return stdout.trim();
+    const path4 = stdout.trim();
+    console.log("[OpenCode] Found via which:", path4);
+    return path4;
   } catch (e) {
+    console.log("[OpenCode] 'which opencode' failed, checking common paths...");
     for (const p of getCommonOpenCodePaths()) {
       const expanded = p.replace("~", process.env.HOME || "");
+      console.log("[OpenCode] Checking path:", expanded);
       if (fs2.existsSync(expanded)) {
+        console.log("[OpenCode] Found opencode at:", expanded);
         return expanded;
       }
     }
+    console.log("[OpenCode] No opencode found in common paths");
   }
   return null;
 }
@@ -972,7 +983,8 @@ function getCommonOpenCodePaths3() {
     "/usr/local/bin/opencode",
     "/usr/bin/opencode",
     "~/.local/bin/opencode",
-    "~/node_modules/.bin/opencode"
+    "~/node_modules/.bin/opencode",
+    "~/.bun/bin/opencode"
   ];
 }
 async function detectExistingOpenCode3() {
@@ -1393,17 +1405,25 @@ var OpenCodePlugin = class extends import_obsidian4.Plugin {
     this.opencodeSettingsManager = new OpencodeSettingsManager(configDir);
     const selectedInstallation = this.installationManager.getSelectedInstallation();
     if (selectedInstallation) {
+      console.log("[OpenCode] Using selected installation:", selectedInstallation.executablePath);
       this.settings.opencodePath = selectedInstallation.executablePath;
       this.settings.installations = this.installationManager.getInstallations();
       this.settings.selectedInstallationId = selectedInstallation.id;
       this.settings.opencodeConfigPath = this.opencodeSettingsManager.getConfigPath();
     } else {
+      console.log("[OpenCode] No selected installation, detecting existing installations...");
       const detected = await this.installationManager.detectExistingInstallations();
+      console.log("[OpenCode] Detected installations:", detected);
       if (detected.length > 0) {
         this.settings.installations = detected;
         this.settings.opencodePath = detected[0].executablePath;
+        await this.saveSettings();
+        console.log("[OpenCode] Saved detected opencode path:", detected[0].executablePath);
+      } else {
+        console.log("[OpenCode] No existing installations detected. Please install OpenCode or check the opencodePath setting.");
       }
     }
+    console.log("[OpenCode] Final opencodePath:", this.settings.opencodePath);
     const projectDirectory = this.getProjectDirectory();
     this.processManager = new ProcessManager(
       this.settings,

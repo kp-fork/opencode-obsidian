@@ -34,18 +34,28 @@ export default class OpenCodePlugin extends Plugin {
     // Update opencodePath from selected installation if available
     const selectedInstallation = this.installationManager.getSelectedInstallation();
     if (selectedInstallation) {
+      console.log("[OpenCode] Using selected installation:", selectedInstallation.executablePath);
       this.settings.opencodePath = selectedInstallation.executablePath;
       this.settings.installations = this.installationManager.getInstallations();
       this.settings.selectedInstallationId = selectedInstallation.id;
       this.settings.opencodeConfigPath = this.opencodeSettingsManager.getConfigPath();
     } else {
       // Detect existing installations
+      console.log("[OpenCode] No selected installation, detecting existing installations...");
       const detected = await this.installationManager.detectExistingInstallations();
+      console.log("[OpenCode] Detected installations:", detected);
       if (detected.length > 0) {
         this.settings.installations = detected;
         this.settings.opencodePath = detected[0].executablePath;
+        // Save the detected path so it persists
+        await this.saveSettings();
+        console.log("[OpenCode] Saved detected opencode path:", detected[0].executablePath);
+      } else {
+        console.log("[OpenCode] No existing installations detected. Please install OpenCode or check the opencodePath setting.");
       }
     }
+
+    console.log("[OpenCode] Final opencodePath:", this.settings.opencodePath);
 
     const projectDirectory = this.getProjectDirectory();
 
