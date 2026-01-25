@@ -148,6 +148,15 @@ export class OpenCodeView extends ItemView {
       this.reloadIframe();
     });
 
+    const restartButton = actionsEl.createEl("button", {
+      attr: { "aria-label": "Restart server" },
+    });
+    setIcon(restartButton, "sync");
+    restartButton.addEventListener("click", async () => {
+      this.plugin.stopServer();
+      await this.plugin.startServer();
+    });
+
     const stopButton = actionsEl.createEl("button", {
       attr: { "aria-label": "Stop server" },
     });

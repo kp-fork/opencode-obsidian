@@ -31,6 +31,15 @@ export default class OpenCodePlugin extends Plugin {
     const configDir = getConfigDir(dataDir);
     this.opencodeSettingsManager = new OpencodeSettingsManager(configDir);
 
+    // Initialize Process Manager early (needed before saveSettings can be called)
+    const projectDirectory = this.getProjectDirectory();
+    this.processManager = new ProcessManager(
+      this.settings,
+      projectDirectory,
+      this.settings.opencodeConfigPath,
+      (state) => this.notifyStateChange(state)
+    );
+
     // Update opencodePath from selected installation if available
     const selectedInstallation = this.installationManager.getSelectedInstallation();
     if (selectedInstallation) {
@@ -56,15 +65,6 @@ export default class OpenCodePlugin extends Plugin {
     }
 
     console.log("[OpenCode] Final opencodePath:", this.settings.opencodePath);
-
-    const projectDirectory = this.getProjectDirectory();
-
-    this.processManager = new ProcessManager(
-      this.settings,
-      projectDirectory,
-      this.settings.opencodeConfigPath,
-      (state) => this.notifyStateChange(state)
-    );
 
     console.log("[OpenCode] Configured with project directory:", projectDirectory);
 
@@ -133,7 +133,7 @@ export default class OpenCodePlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
-    this.processManager.updateSettings(this.settings);
+    this.processManager?.updateSettings(this.settings);
   }
 
   // Update project directory and restart server if running

@@ -180,6 +180,14 @@ var OpenCodeView = class extends import_obsidian2.ItemView {
     reloadButton.addEventListener("click", () => {
       this.reloadIframe();
     });
+    const restartButton = actionsEl.createEl("button", {
+      attr: { "aria-label": "Restart server" }
+    });
+    (0, import_obsidian2.setIcon)(restartButton, "sync");
+    restartButton.addEventListener("click", async () => {
+      this.plugin.stopServer();
+      await this.plugin.startServer();
+    });
     const stopButton = actionsEl.createEl("button", {
       attr: { "aria-label": "Stop server" }
     });
@@ -891,34 +899,45 @@ async function detectSystemNpm() {
 }
 function getCommonOpenCodePaths() {
   return [
-    // Actual binary paths (prefer these over wrapper scripts)
-    "~/node_modules/opencode-ai/bin/opencode",
-    "~/.bun/node_modules/opencode-ai/bin/opencode",
-    // Wrapper scripts (these require node in PATH)
+    // Native binaries (prefer these - no node required)
+    "~/node_modules/opencode-darwin-arm64/bin/opencode",
+    "~/node_modules/opencode-darwin-x64/bin/opencode",
+    "~/.bun/node_modules/opencode-darwin-arm64/bin/opencode",
+    "~/.bun/node_modules/opencode-darwin-x64/bin/opencode",
+    "/usr/local/lib/node_modules/opencode-darwin-arm64/bin/opencode",
+    "/usr/local/lib/node_modules/opencode-darwin-x64/bin/opencode",
+    // Wrapper scripts (these require node in PATH - less preferred)
+    "~/node_modules/.bin/opencode",
+    "~/.bun/bin/opencode",
     "/usr/local/bin/opencode",
     "/opt/homebrew/bin/opencode",
-    "~/.local/bin/opencode",
-    "~/.bun/bin/opencode",
-    "~/node_modules/.bin/opencode"
+    "~/.local/bin/opencode"
   ];
 }
 async function detectExistingOpenCode() {
+  console.log("[OpenCode] Checking for native opencode binaries...");
+  for (const p of getCommonOpenCodePaths()) {
+    const expanded = p.replace("~", process.env.HOME || "");
+    console.log("[OpenCode] Checking path:", expanded);
+    if (fs2.existsSync(expanded)) {
+      console.log("[OpenCode] Found opencode at:", expanded);
+      return expanded;
+    }
+  }
   try {
     const { stdout } = await execAsync("which opencode");
     const path4 = stdout.trim();
     console.log("[OpenCode] Found via which:", path4);
+    try {
+      const content = fs2.readFileSync(path4, "utf-8");
+      if (content.startsWith("#!/usr/bin/env node")) {
+        console.log("[OpenCode] Warning: 'which' returned a wrapper script that requires node in PATH");
+      }
+    } catch (e) {
+    }
     return path4;
   } catch (e) {
-    console.log("[OpenCode] 'which opencode' failed, checking common paths...");
-    for (const p of getCommonOpenCodePaths()) {
-      const expanded = p.replace("~", process.env.HOME || "");
-      console.log("[OpenCode] Checking path:", expanded);
-      if (fs2.existsSync(expanded)) {
-        console.log("[OpenCode] Found opencode at:", expanded);
-        return expanded;
-      }
-    }
-    console.log("[OpenCode] No opencode found in common paths");
+    console.log("[OpenCode] No opencode found");
   }
   return null;
 }
@@ -1403,6 +1422,13 @@ var OpenCodePlugin = class extends import_obsidian4.Plugin {
     const dataDir = await getPluginDataDir(this);
     const configDir = getConfigDir(dataDir);
     this.opencodeSettingsManager = new OpencodeSettingsManager(configDir);
+    const projectDirectory = this.getProjectDirectory();
+    this.processManager = new ProcessManager(
+      this.settings,
+      projectDirectory,
+      this.settings.opencodeConfigPath,
+      (state) => this.notifyStateChange(state)
+    );
     const selectedInstallation = this.installationManager.getSelectedInstallation();
     if (selectedInstallation) {
       console.log("[OpenCode] Using selected installation:", selectedInstallation.executablePath);
@@ -1424,13 +1450,6 @@ var OpenCodePlugin = class extends import_obsidian4.Plugin {
       }
     }
     console.log("[OpenCode] Final opencodePath:", this.settings.opencodePath);
-    const projectDirectory = this.getProjectDirectory();
-    this.processManager = new ProcessManager(
-      this.settings,
-      projectDirectory,
-      this.settings.opencodeConfigPath,
-      (state) => this.notifyStateChange(state)
-    );
     console.log("[OpenCode] Configured with project directory:", projectDirectory);
     this.registerView(OPENCODE_VIEW_TYPE, (leaf) => new OpenCodeView(leaf, this));
     this.addSettingTab(new OpenCodeSettingTab(this.app, this));
@@ -1486,8 +1505,9 @@ var OpenCodePlugin = class extends import_obsidian4.Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
   }
   async saveSettings() {
+    var _a;
     await this.saveData(this.settings);
-    this.processManager.updateSettings(this.settings);
+    (_a = this.processManager) == null ? void 0 : _a.updateSettings(this.settings);
   }
   // Update project directory and restart server if running
   async updateProjectDirectory(directory) {
