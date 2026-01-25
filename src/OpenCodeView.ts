@@ -151,7 +151,7 @@ export class OpenCodeView extends ItemView {
     const restartButton = actionsEl.createEl("button", {
       attr: { "aria-label": "Restart server" },
     });
-    setIcon(restartButton, "sync");
+    setIcon(restartButton, "redo");
     restartButton.addEventListener("click", async () => {
       this.plugin.stopServer();
       await this.plugin.startServer();

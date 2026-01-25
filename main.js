@@ -183,7 +183,7 @@ var OpenCodeView = class extends import_obsidian2.ItemView {
     const restartButton = actionsEl.createEl("button", {
       attr: { "aria-label": "Restart server" }
     });
-    (0, import_obsidian2.setIcon)(restartButton, "sync");
+    (0, import_obsidian2.setIcon)(restartButton, "redo");
     restartButton.addEventListener("click", async () => {
       this.plugin.stopServer();
       await this.plugin.startServer();
