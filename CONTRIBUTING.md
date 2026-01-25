@@ -6,9 +6,9 @@ Thank you for your interest in contributing to the OpenCode Obsidian plugin!
 
 We welcome the following types of contributions:
 
-- Bug fixes
-- Performance improvements
+- Windows and WSL support
 - Documentation improvements
+- Bug fixes
 
 **Note:** Core product features and major changes require prior discussion. Please [open an issue](https://github.com/mtymek/opencode-obsidian/issues) first to discuss your proposal before starting work. PRs for new features submitted without prior approval may be closed.
 
